@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contracts/token/ERC721/ERC721.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contracts/access/Ownable.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contracts/utils/math/SafeMath.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.5/contracts/utils/Counters.sol";
 
 contract BlastNFT is ERC721, Ownable {
     using SafeMath for uint256;
-
+    Counters.Counter private _tokenIdCounter;
     string private _baseTokenURI;
     address private _blastSepoliaNetwork =
         0x4200000000000000000000000000000000000024;
@@ -15,6 +17,7 @@ contract BlastNFT is ERC721, Ownable {
     mapping(uint256 => bool) private _isNFTListed;
     mapping(uint256 => uint256) private _tokenPrices;
     mapping(address => uint256[]) private _listingToOwner;
+    mapping(uint256 => string) private _tokenURIs;
 
     event NFTListed(uint256 tokenId, address seller, uint256 priceInBlast);
     event NFTPurchased(address buyer, uint256 tokenId, uint256 priceInBlast);
@@ -37,17 +40,24 @@ contract BlastNFT is ERC721, Ownable {
         _tokenURIs[tokenId] = uri;
     }
 
+    // Helper function to construct the metadata URI
+    function getMetadataURI(
+        string memory ipfsHash
+    ) internal pure returns (string memory) {
+        // Example: Assuming you use IPFS
+        return string(abi.encodePacked("https://ipfs.io/ipfs/", ipfsHash));
+    }
+
     function mintNFT(string memory ipfsHash, uint256 priceInBlast) external {
         require(
             msg.sender == _blastSepoliaNetwork,
             "Only Blast Sepolia network can mint NFTs"
         );
-        uint256 tokenId = totalSupply() + 1;
+        uint256 tokenId = nextTokenId();
         _mint(msg.sender, tokenId);
-        _setTokenURI(
-            tokenId,
-            string(abi.encodePacked(_baseTokenURI, ipfsHash))
-        );
+        string memory tokenURI = getMetadataURI(ipfsHash);
+        _setTokenURI(tokenId, tokenURI);
+
         _tokenPrices[tokenId] = priceInBlast;
         _listingToOwner[msg.sender].push(tokenId);
     }
@@ -93,13 +103,13 @@ contract BlastNFT is ERC721, Ownable {
     }
 
     function setTokenPrice(uint256 tokenId, uint256 priceInBlast) external {
-        require(_exists(tokenId), "NFT does not exist");
+        require(_exists(tokenId), "ERC721: token does not exist");
         require(_isTokenOwner(tokenId, msg.sender), "You are not the owner");
         _tokenPrices[tokenId] = priceInBlast;
     }
 
     function getTokenPrice(uint256 tokenId) external view returns (uint256) {
-        require(_exists(tokenId), "NFT does not exist");
+        require(_exists(tokenId), "ERC721: token does not exist");
         return _tokenPrices[tokenId];
     }
 
@@ -113,6 +123,10 @@ contract BlastNFT is ERC721, Ownable {
         address owner
     ) internal view returns (bool) {
         return ownerOf(tokenId) == owner;
+    }
+
+    function nextTokenId() public view returns (uint256) {
+        return Counters.current(_tokenIdCounter) + 1;
     }
 
     // Internal function to update ownership in the listing mapping
