@@ -10,13 +10,21 @@ import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.5/contr
 interface IBlast {
     // function claimYield(address contractAddress, address recipientOfYield, uint256 amount) external returns (uint256);
     function configureAutomaticYield() external;
+
+    function configureClaimableGas() external;
+
+    function claimAllGas(
+        address contractAddress,
+        address recipientOfGas
+    ) external returns (uint256);
 }
 
 contract BlastNFT is ERC721, Ownable {
     using SafeMath for uint256;
+    address private _COwner;
     Counters.Counter private _tokenIdCounter;
-    address private _blastSepoliaNetwork =
-        0x4200000000000000000000000000000000000024;
+    IBlast public constant BLAST =
+        IBlast(0x4300000000000000000000000000000000000002);
     mapping(uint256 => bool) private _isNFTListed;
     mapping(uint256 => uint256) private _tokenPrices;
     mapping(address => uint256[]) private _listingToOwner;
@@ -33,14 +41,10 @@ contract BlastNFT is ERC721, Ownable {
     event NFTListed(uint256 tokenId, address seller, uint256 priceInBlast);
     event NFTPurchased(address buyer, uint256 tokenId, uint256 priceInBlast);
 
-    constructor(
-        string memory name,
-        string memory symbol,
-        address blastSepoliaNetwork
-    ) ERC721(name, symbol) {
-        _blastSepoliaNetwork = blastSepoliaNetwork;
-        IBlast(0x4300000000000000000000000000000000000002)
-            .configureAutomaticYield();
+    constructor(string memory name, string memory symbol) ERC721(name, symbol) {
+        _COwner = msg.sender;
+        BLAST.configureAutomaticYield();
+        BLAST.configureClaimableGas();
     }
 
     function _setTokenURI(uint256 tokenId, string memory uri) internal virtual {
@@ -61,10 +65,6 @@ contract BlastNFT is ERC721, Ownable {
     }
 
     function mintNFT(string memory ipfsHash, uint256 priceInBlast) external {
-        require(
-            msg.sender == _blastSepoliaNetwork,
-            "Only Blast Sepolia network can mint NFTs"
-        );
         uint256 tokenId = nextTokenId();
         _mint(msg.sender, tokenId);
         string memory tokenURI = getMetadataURI(ipfsHash);
@@ -74,10 +74,7 @@ contract BlastNFT is ERC721, Ownable {
         _listingToOwner[msg.sender].push(tokenId);
     }
 
-    function listNFTForSale(
-        uint256 tokenId,
-        uint256 priceInBlast
-    ) external onlyBlastSepolia {
+    function listNFTForSale(uint256 tokenId, uint256 priceInBlast) external {
         require(_isTokenOwner(tokenId, msg.sender), "You are not the owner");
         require(!_isNFTListed[tokenId], "NFT is already listed");
 
@@ -94,10 +91,6 @@ contract BlastNFT is ERC721, Ownable {
         require(
             !_isTokenOwner(tokenId, msg.sender),
             "You can't purchase your own NFT"
-        );
-        require(
-            msg.sender == _blastSepoliaNetwork,
-            "Only Blast Sepolia network can purchase NFTs"
         );
 
         uint256 priceInBlast = _tokenPrices[tokenId];
@@ -223,11 +216,14 @@ contract BlastNFT is ERC721, Ownable {
         _listingToOwner[newOwner].push(tokenId);
     }
 
-    modifier onlyBlastSepolia() {
-        require(
-            msg.sender == _blastSepoliaNetwork,
-            "Only Blast Sepolia network can call this function"
-        );
+    // Function to claim gas for the contract (onlyOwner)
+    function claimMyContractsGas() external onlyCOwner {
+        BLAST.claimAllGas(address(this), msg.sender);
+    }
+
+    // Modifier to check if the caller is the owner
+    modifier onlyCOwner() {
+        require(msg.sender == _COwner, "Only the owner can call this function");
         _;
     }
 }
