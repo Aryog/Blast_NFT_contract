@@ -7,17 +7,28 @@ import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contr
 import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contracts/utils/math/SafeMath.sol";
 import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.5/contracts/utils/Counters.sol";
 
+interface IBlast {
+    // function claimYield(address contractAddress, address recipientOfYield, uint256 amount) external returns (uint256);
+    function configureAutomaticYield() external;
+}
+
 contract BlastNFT is ERC721, Ownable {
     using SafeMath for uint256;
     Counters.Counter private _tokenIdCounter;
-    string private _baseTokenURI;
     address private _blastSepoliaNetwork =
         0x4200000000000000000000000000000000000024;
-
     mapping(uint256 => bool) private _isNFTListed;
     mapping(uint256 => uint256) private _tokenPrices;
     mapping(address => uint256[]) private _listingToOwner;
     mapping(uint256 => string) private _tokenURIs;
+
+    struct Lockup {
+        uint256 tokenId;
+        uint256 amount;
+        uint256 releaseTime;
+    }
+
+    mapping(address => Lockup[]) private lockups;
 
     event NFTListed(uint256 tokenId, address seller, uint256 priceInBlast);
     event NFTPurchased(address buyer, uint256 tokenId, uint256 priceInBlast);
@@ -25,11 +36,11 @@ contract BlastNFT is ERC721, Ownable {
     constructor(
         string memory name,
         string memory symbol,
-        string memory baseTokenURI,
         address blastSepoliaNetwork
     ) ERC721(name, symbol) {
-        _baseTokenURI = baseTokenURI;
         _blastSepoliaNetwork = blastSepoliaNetwork;
+        IBlast(0x4300000000000000000000000000000000000002)
+            .configureAutomaticYield();
     }
 
     function _setTokenURI(uint256 tokenId, string memory uri) internal virtual {
@@ -46,6 +57,7 @@ contract BlastNFT is ERC721, Ownable {
     ) internal pure returns (string memory) {
         // Example: Assuming you use IPFS
         return string(abi.encodePacked("https://ipfs.io/ipfs/", ipfsHash));
+        // return string(abi.encodePacked(_baseTokenURI, ipfsHash));
     }
 
     function mintNFT(string memory ipfsHash, uint256 priceInBlast) external {
@@ -74,7 +86,10 @@ contract BlastNFT is ERC721, Ownable {
         emit NFTListed(tokenId, msg.sender, priceInBlast);
     }
 
-    function purchaseNFT(uint256 tokenId) external payable {
+    function purchaseNFT(
+        uint256 tokenId,
+        uint256 lockupPeriodInDays
+    ) external payable {
         require(_isNFTListed[tokenId], "NFT is not listed for sale");
         require(
             !_isTokenOwner(tokenId, msg.sender),
@@ -84,8 +99,20 @@ contract BlastNFT is ERC721, Ownable {
             msg.sender == _blastSepoliaNetwork,
             "Only Blast Sepolia network can purchase NFTs"
         );
+
         uint256 priceInBlast = _tokenPrices[tokenId];
-        require(msg.value == priceInBlast, "Incorrect payment amount");
+
+        // Calculate the required principal amount based on the target yield and lockup period
+        uint256 requiredPrincipal = calculatePrincipalAmount(
+            priceInBlast,
+            lockupPeriodInDays
+        );
+
+        // Check if the sent amount is equal to or greater than the required principal
+        require(
+            msg.value >= requiredPrincipal,
+            "Insufficient funds to purchase the NFT"
+        );
 
         address seller = ownerOf(tokenId);
 
@@ -99,7 +126,53 @@ contract BlastNFT is ERC721, Ownable {
         // Mark the NFT as not listed
         _isNFTListed[tokenId] = false;
 
+        // Refund any excess funds sent by the buyer
+        if (msg.value > requiredPrincipal) {
+            payable(msg.sender).transfer(msg.value - requiredPrincipal);
+        }
+
+        Lockup memory newLockup = Lockup({
+            tokenId: tokenId,
+            amount: requiredPrincipal,
+            releaseTime: block.timestamp + lockupPeriodInDays * 1 days
+        });
+
+        lockups[msg.sender].push(newLockup);
         emit NFTPurchased(msg.sender, tokenId, priceInBlast);
+    }
+
+    function calculatePrincipalAmount(
+        uint256 targetYield,
+        uint256 lockupPeriodInDays
+    ) internal pure returns (uint256) {
+        uint256 annualInterestRate = 4; // 4% annual interest
+        uint256 principalAmount = (targetYield * 365 * 100) /
+            (annualInterestRate * lockupPeriodInDays);
+        return principalAmount;
+    }
+
+    // User need to call for the lockedup funds
+    function withdrawLockedUpFunds(uint256 lockupIndex) external {
+        require(
+            lockupIndex < lockups[msg.sender].length,
+            "Invalid lockup index"
+        );
+        Lockup storage lockup = lockups[msg.sender][lockupIndex];
+        require(
+            block.timestamp >= lockup.releaseTime,
+            "Lock-up period not yet expired"
+        );
+
+        // Transfer the locked-up funds back to the user
+        payable(msg.sender).transfer(lockup.amount);
+
+        // Remove the completed lockup from the array
+        if (lockups[msg.sender].length > 1) {
+            lockups[msg.sender][lockupIndex] = lockups[msg.sender][
+                lockups[msg.sender].length - 1
+            ];
+        }
+        lockups[msg.sender].pop();
     }
 
     function setTokenPrice(uint256 tokenId, uint256 priceInBlast) external {
@@ -127,6 +200,10 @@ contract BlastNFT is ERC721, Ownable {
 
     function nextTokenId() public view returns (uint256) {
         return Counters.current(_tokenIdCounter) + 1;
+    }
+
+    function getAllLockups() external view returns (Lockup[] memory) {
+        return lockups[msg.sender];
     }
 
     // Internal function to update ownership in the listing mapping
