@@ -20,6 +20,8 @@ contract BlastNFT is ERC721, Ownable {
     address private _marketplace;
     address private _collectionOwner;
     mapping(uint256 => string) private _tokenURIs;
+    // For the amount holders
+    mapping(address => uint256) private _contributions;
 
     event NFTMinted(uint256 tokenId, address owner, string tokenURI);
 
@@ -98,21 +100,28 @@ contract BlastNFT is ERC721, Ownable {
     }
 
     function receiveFunds() external payable {
-        // Implement logic to handle received funds in the collection contract
-        // This function can be customized based on your requirements
-        // For example, you might want to keep track of the buyer's address and the amount received.
+        _contributions[msg.sender] += msg.value;
+        // Implement additional logic if needed
     }
 
     // Transfer funds from the collection to the recipient
     function transferFromCollection(
         address recipient,
         uint256 amount
-    ) external onlyOwner {
-        // Assuming you have a specific ERC20 token for your collection
-        // Adjust this based on your actual token implementation
-        IERC20 yourCollectionToken = IERC20(yourCollectionTokenAddress);
-
-        // Transfer funds to the recipient
-        yourCollectionToken.transfer(recipient, amount);
+    ) external {
+        // Transfer the funds while withdrawing from marketplace.sol
+        // After the completion of the lockup period
+        // Transfer to the recipient with the amount that was received by receiveFunds() function
+        // Check if the sender has made a contribution
+        uint256 contribution = _contributions[recipient];
+        require(contribution > 0, "No contribution found for the recipient");
+        // Transfer the contributed amount in Ether from the collection to the recipient
+        require(
+            address(this).balance >= contribution,
+            "Insufficient funds in the collection"
+        );
+        require(address(this).balance >= amount, "No balance available");
+        recipient.transfer(amount);
+        _contributions[msg.sender] -= msg.value;
     }
 }
