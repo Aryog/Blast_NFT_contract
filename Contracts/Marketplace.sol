@@ -1,28 +1,20 @@
-// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
+import "./BlastNFT.sol";
+import "./BlastNFTFactory.sol";
 
-contract Marketplace is Ownable, ReentrancyGuard {
-    using SafeMath for uint256;
+// For factory pass it on the constructor
+contract Marketplace is ReentrancyGuard {
     using Counters for Counters.Counter;
 
-    mapping(address => bool) private _approvedCollections;
+    address public owner;
+    BlastNFTFactory public factory;
+
     mapping(address => mapping(uint256 => uint256)) private _tokenPrices;
     mapping(address => mapping(uint256 => bool)) private _isNFTListed;
     Counters.Counter private _tokenIdCounter;
-
-    struct Lockup {
-        address collection;
-        uint256 tokenId;
-        uint256 amount;
-        uint256 releaseTime;
-    }
-
-    mapping(address => Lockup[]) private lockups;
 
     event NFTListed(
         address indexed collection,
@@ -30,32 +22,36 @@ contract Marketplace is Ownable, ReentrancyGuard {
         address indexed seller,
         uint256 price
     );
+
     event NFTPurchased(
         address indexed collection,
         uint256 indexed tokenId,
         address indexed buyer
     );
 
-    modifier onlyApprovedCollection() {
-        require(_approvedCollections[msg.sender], "Collection not approved");
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not the owner");
         _;
     }
 
-    function approveCollection(address collection) external onlyOwner {
-        _approvedCollections[collection] = true;
+    constructor(address _factory) {
+        owner = msg.sender;
+        factory = BlastNFTFactory(_factory);
     }
 
-    // collection is the BlasNFT contract address
     function toggleNFTForSale(
         address collection,
         uint256 tokenId,
         uint256 priceInBlast
-    ) external onlyApprovedCollection {
+    ) external onlyOwner {
         require(
-            _isTokenOwner(collection, tokenId, msg.sender),
-            "You are not the owner"
+            factory.isCollectionCreated(collection),
+            "Collection not created by the factory"
         );
-
+        require(
+            BlastNFT(collection).ownerOf(tokenId) == msg.sender,
+            "You are not the owner of the NFT"
+        );
         if (_isNFTListed[collection][tokenId]) {
             // NFT is already listed, remove from sale
             _removeFromSale(collection, tokenId);
@@ -67,8 +63,7 @@ contract Marketplace is Ownable, ReentrancyGuard {
 
     function purchaseNFT(
         address collection,
-        uint256 tokenId,
-        uint256 lockupPeriodInDays
+        uint256 tokenId
     ) external payable nonReentrant {
         require(
             _tokenPrices[collection][tokenId] > 0,
@@ -76,43 +71,17 @@ contract Marketplace is Ownable, ReentrancyGuard {
         );
         uint256 priceInBlast = _tokenPrices[collection][tokenId];
 
-        uint256 requiredPrincipal = calculatePrincipalAmount(
-            priceInBlast,
-            lockupPeriodInDays
-        );
+        require(msg.value >= priceInBlast, "Insufficient funds to purchase");
 
-        require(
-            msg.value >= requiredPrincipal,
-            "Insufficient funds to purchase the NFT"
-        );
+        // Transfer funds to the seller
+        address seller = BlastNFT(collection).ownerOf(tokenId);
+        payable(seller).transfer(priceInBlast);
 
-        Lockup memory newLockup = Lockup({
-            collection: collection,
-            tokenId: tokenId,
-            amount: requiredPrincipal,
-            releaseTime: block.timestamp + lockupPeriodInDays * 1 days
-        });
+        // Transfer the NFT to the buyer
+        BlastNFT(collection).transferFrom(seller, msg.sender, tokenId);
 
-        lockups[msg.sender].push(newLockup);
-
-        address seller = IERC721(collection).ownerOf(tokenId);
-
-        IERC721(collection).transferFrom(seller, msg.sender, tokenId);
-
-        _approvedCollections[msg.sender] = false;
-        _approvedCollections[seller] = true;
-
-        _tokenPrices[collection][tokenId] = 0;
-
-        // Send funds to the collection contract
-        // Assuming your collection contract has a receiveFunds function
-        // Modify this part based on your contract's actual function to receive funds
-        (bool success, ) = address(collection).call{value: priceInBlast}("");
-        require(success, "Failed to send funds to the collection contract");
-
-        if (msg.value > requiredPrincipal) {
-            payable(msg.sender).transfer(msg.value - requiredPrincipal);
-        }
+        // Remove from sale
+        _removeFromSale(collection, tokenId);
 
         emit NFTPurchased(collection, tokenId, msg.sender);
     }
@@ -121,62 +90,7 @@ contract Marketplace is Ownable, ReentrancyGuard {
         uint256 targetYield,
         uint256 lockupPeriodInDays
     ) internal pure returns (uint256) {
-        uint256 annualInterestRate = 4;
-        uint256 principalAmount = (targetYield * 365 * 100) /
-            (annualInterestRate * lockupPeriodInDays);
-        return principalAmount;
-    }
-
-    // User need to call for the lockedup funds
-    function withdrawLockedUpFunds(uint256 lockupIndex) external {
-        require(
-            lockupIndex < lockups[msg.sender].length,
-            "Invalid lockup index"
-        );
-        Lockup storage lockup = lockups[msg.sender][lockupIndex];
-        require(
-            block.timestamp >= lockup.releaseTime,
-            "Lock-up period not yet expired"
-        );
-
-        // Transfer the locked-up funds back to the user
-        IBlast(lockup.collection).transferFromCollection(
-            msg.sender,
-            lockup.amount
-        );
-
-        // Remove the completed lockup from the array
-        if (lockups[msg.sender].length > 1) {
-            lockups[msg.sender][lockupIndex] = lockups[msg.sender][
-                lockups[msg.sender].length - 1
-            ];
-        }
-        lockups[msg.sender].pop();
-    }
-
-    // Get the lockup index based on the user and lockup details
-    function getLockupIndex(
-        address user,
-        uint256 tokenId,
-        uint256 releaseTime
-    ) internal view returns (uint256) {
-        for (uint256 i = 0; i < lockups[user].length; i++) {
-            if (
-                lockups[user][i].tokenId == tokenId &&
-                lockups[user][i].releaseTime == releaseTime
-            ) {
-                return i;
-            }
-        }
-        return type(uint256).max; // Lockup not found, return a large value as an indicator
-    }
-
-    function _isTokenOwner(
-        address collection,
-        uint256 tokenId,
-        address potentialOwner
-    ) internal view returns (bool) {
-        return IERC721(collection).ownerOf(tokenId) == potentialOwner;
+        // TODO: calculation logic here for yeild generating deposit
     }
 
     function _removeFromSale(address collection, uint256 tokenId) internal {
