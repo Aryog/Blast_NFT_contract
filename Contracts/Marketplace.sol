@@ -1,7 +1,8 @@
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.5/contracts/security/ReentrancyGuard.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.5/contracts/utils/Counters.sol";
 import "./BlastNFT.sol";
 import "./BlastNFTFactory.sol";
 
@@ -61,6 +62,7 @@ contract Marketplace is ReentrancyGuard {
         }
     }
 
+    // User should have the collection address of particular nft
     function purchaseNFT(
         address collection,
         uint256 tokenId
@@ -75,6 +77,18 @@ contract Marketplace is ReentrancyGuard {
 
         // Transfer funds to the seller
         address seller = BlastNFT(collection).ownerOf(tokenId);
+        // Ensure that the buyer is not the current owner of the token
+        require(
+            seller != msg.sender,
+            "Buyer is the current owner of the token"
+        );
+
+        // Check if the buyer is approved or the owner
+        require(
+            BlastNFT(collection).getApproved(tokenId) == address(this),
+            "NFT must be approved to market"
+        );
+
         payable(seller).transfer(priceInBlast);
 
         // Transfer the NFT to the buyer

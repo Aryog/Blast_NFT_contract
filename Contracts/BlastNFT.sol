@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contracts/token/ERC721/ERC721.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contracts/access/Ownable.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.5/contracts/utils/Counters.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contracts/utils/math/SafeMath.sol";
 
 contract BlastNFT is ERC721, Ownable {
     using Counters for Counters.Counter;
@@ -11,12 +13,14 @@ contract BlastNFT is ERC721, Ownable {
     Counters.Counter private _tokenIdCounter;
     // Address of the linked Marketplace contract
     address private _marketplace;
+    address private _collectionOwner;
     mapping(uint256 => address) private _tokenCollection;
     mapping(uint256 => string) private _tokenURIs;
     mapping(uint256 => string) private _tokenNames;
 
     event NFTMinted(
         uint256 tokenId,
+        address marketplace,
         address owner,
         string tokenURI,
         string tokenName
@@ -33,9 +37,10 @@ contract BlastNFT is ERC721, Ownable {
     constructor(
         string memory name,
         string memory symbol,
-        address marketplace
+        address marketplace,
+        address owner
     ) ERC721(name, symbol) {
-        _collectionOwner = msg.sender;
+        _collectionOwner = owner;
         _marketplace = marketplace;
     }
 
@@ -46,19 +51,17 @@ contract BlastNFT is ERC721, Ownable {
         require(_marketplace != address(0), "Marketplace not set");
 
         uint256 tokenId = _tokenIdCounter.current();
+        // Set the collection ownership for the minted token may require in the future
         _tokenCollection[tokenId] = msg.sender;
         _tokenIdCounter.increment();
         _mint(msg.sender, tokenId);
         _setTokenURI(tokenId, tokenURI);
         _setTokenName(tokenId, tokenName);
 
-        // Set the collection ownership for the minted token may require in the future
-        _tokenCollection[tokenId] = msg.sender;
-
         // Approve the marketplace to handle the minted token
         approve(_marketplace, tokenId);
 
-        emit NFTMinted(tokenId, msg.sender, tokenURI, tokenName);
+        emit NFTMinted(tokenId, _marketplace, msg.sender, tokenURI, tokenName);
     }
 
     function _setTokenURI(uint256 tokenId, string memory uri) internal virtual {
@@ -106,5 +109,13 @@ contract BlastNFT is ERC721, Ownable {
 
     function getTokenName(uint256 tokenId) public view returns (string memory) {
         return _tokenNames[tokenId];
+    }
+
+    function nftOwner(uint256 tokenId) public view returns (address) {
+        require(
+            _exists(tokenId),
+            "ERC721Metadata: Owner query for nonexistent token"
+        );
+        return ownerOf(tokenId);
     }
 }

@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contracts/access/Ownable.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.5/contracts/utils/Counters.sol";
 import "./BlastNFT.sol";
 
-contract NFTCollectionFactory is Ownable {
+contract BlastNFTFactory is Ownable {
     using Counters for Counters.Counter;
 
     Counters.Counter private _collectionIdCounter;
-    address private _owner;
     // Address of the marketplace contract can be set later by contract Owner
     address private _marketplace;
     mapping(address => bool) private _approvedCollections;
@@ -29,20 +28,16 @@ contract NFTCollectionFactory is Ownable {
         _;
     }
 
-    modifier onlyOwner() {
-        require(msg.sender == _owner, "Not the owner");
-        _;
-    }
-
-    constructor() {
-        _owner = msg.sender;
-    }
-
     function createCollection(
         string memory name,
         string memory symbol
     ) external returns (address) {
-        BlastNFT blastNFT = new BlastNFT(name, symbol, _marketplace);
+        BlastNFT blastNFT = new BlastNFT(
+            name,
+            symbol,
+            _marketplace,
+            msg.sender
+        );
 
         // Assign a unique collection id
         uint256 collectionId = Counters.current(_collectionIdCounter);
@@ -69,8 +64,7 @@ contract NFTCollectionFactory is Ownable {
         address collection
     ) external view returns (bool) {
         // Check if the given collection contract address is part of the collections created by the creator
-        return
-            _approvedCollections[collection] && _collectionIds[collection] > 0;
+        return _approvedCollections[collection];
     }
 
     // Factory contract owner need to set marketplace before adding the collections
