@@ -30,11 +30,6 @@ contract Marketplace is ReentrancyGuard {
         address indexed buyer
     );
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Not the owner");
-        _;
-    }
-
     constructor(address _factory) {
         owner = msg.sender;
         factory = BlastNFTFactory(_factory);
@@ -44,7 +39,7 @@ contract Marketplace is ReentrancyGuard {
         address collection,
         uint256 tokenId,
         uint256 priceInBlast
-    ) external onlyOwner {
+    ) external {
         require(
             factory.isCollectionCreated(collection),
             "Collection not created by the factory"
@@ -53,6 +48,13 @@ contract Marketplace is ReentrancyGuard {
             BlastNFT(collection).ownerOf(tokenId) == msg.sender,
             "You are not the owner of the NFT"
         );
+        // if (BlastNFT(collection).getApproved(tokenId) != address(this)) {
+        // BlastNFT(collection).approve(address(this), tokenId);
+        // BlastNFT(collection).approveMarketplaceNFT(tokenId);
+        // require(true)
+        // approve(address(this), tokenId);
+        // }
+
         if (_isNFTListed[collection][tokenId]) {
             // NFT is already listed, remove from sale
             _removeFromSale(collection, tokenId);
@@ -93,7 +95,6 @@ contract Marketplace is ReentrancyGuard {
 
         // Transfer the NFT to the buyer
         BlastNFT(collection).transferFrom(seller, msg.sender, tokenId);
-
         // Remove from sale
         _removeFromSale(collection, tokenId);
 
@@ -125,6 +126,10 @@ contract Marketplace is ReentrancyGuard {
         uint256 tokenId,
         uint256 priceInBlast
     ) internal {
+        require(
+            !_isNFTListed[collection][tokenId],
+            "Marketplace: NFT is already listed"
+        );
         // Mark the NFT as listed
         _isNFTListed[collection][tokenId] = true;
         // Set the price in the _tokenPrices mapping

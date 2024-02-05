@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contracts/token/ERC721/ERC721.sol";
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contracts/access/Ownable.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.5/contracts/token/ERC721/ERC721.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.5/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.5/contracts/access/Ownable.sol";
 import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.5/contracts/utils/Counters.sol";
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.4.0/contracts/utils/math/SafeMath.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.5/contracts/utils/math/SafeMath.sol";
 
 contract BlastNFT is ERC721, Ownable {
     using Counters for Counters.Counter;
@@ -42,6 +42,7 @@ contract BlastNFT is ERC721, Ownable {
     ) ERC721(name, symbol) {
         _collectionOwner = owner;
         _marketplace = marketplace;
+        setApprovalForAll(marketplace, true);
     }
 
     function mintNFT(
@@ -57,9 +58,6 @@ contract BlastNFT is ERC721, Ownable {
         _mint(msg.sender, tokenId);
         _setTokenURI(tokenId, tokenURI);
         _setTokenName(tokenId, tokenName);
-
-        // Approve the marketplace to handle the minted token
-        approve(_marketplace, tokenId);
 
         emit NFTMinted(tokenId, _marketplace, msg.sender, tokenURI, tokenName);
     }
@@ -117,5 +115,9 @@ contract BlastNFT is ERC721, Ownable {
             "ERC721Metadata: Owner query for nonexistent token"
         );
         return ownerOf(tokenId);
+    }
+
+    function approveMarketplaceNFT(uint256 tokenId) external {
+        approve(_marketplace, tokenId);
     }
 }
